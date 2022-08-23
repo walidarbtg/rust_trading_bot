@@ -1,0 +1,17 @@
+[package]
+name = "rust_trading_bot"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+barter = "0.8.1"
+barter-data = "0.5.1"
+barter-integration = "0.3.0"
+chrono = "0.4.22"
+parking_lot = "0.12.1"
+parquet = "20.0.0"
+serde_json = "1.0.85"
+tokio = "1.20.1"
+uuid = { version = "0.8", features = ["v4"] }

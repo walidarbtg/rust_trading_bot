@@ -18,28 +18,32 @@ pub struct Config {
 pub struct BBStrategy {
     bb: BollingerBands,
     position: i32,
-    previous_candle_close: f64,
-    candle_close: f64
+    previous_spread_close: f64,
+    spread_close: f64
 }
 
 impl SignalGenerator for BBStrategy {
     fn generate_signal(&mut self, market: &MarketEvent) -> Option<Signal> {
         // Check if it's a MarketEvent with a candle
+        let spread_close = match &market.kind {
+            DataKind::Candle(candle) => candle.volume, // highjacking volume param for now
+            _ => return None,
+        };
         let candle_close = match &market.kind {
             DataKind::Candle(candle) => candle.close,
             _ => return None,
         };
 
         // Calculate the next BB values using the new MarketEvent Candle data
-        let bbo = self.bb.next(candle_close);
+        let bbo = self.bb.next(spread_close);
         
         // NOTE: i am using 0.0 as placeholder. This is not likely to cause an issue but possible if real candle close is 0.0 exact
-        if self.candle_close == 0.0 {
-            self.previous_candle_close = candle_close;
+        if self.spread_close == 0.0 {
+            self.previous_spread_close = spread_close;
         } else {
-            self.previous_candle_close = self.candle_close;
+            self.previous_spread_close = self.spread_close;
         }
-        self.candle_close = candle_close;
+        self.spread_close = spread_close;
 
         // Generate advisory signals map
         let signals = BBStrategy::generate_signals_map(self, bbo);
@@ -68,26 +72,26 @@ impl BBStrategy {
         let bb_indicator = BollingerBands::new(config.bb_period, config.bb_multiplier)
             .expect("Failed to construct BB indicator");
 
-        Self { bb: bb_indicator, previous_candle_close: 0.0, candle_close: 0.0, position: 0 }
+        Self { bb: bb_indicator, previous_spread_close: 0.0, spread_close: 0.0, position: 0 }
     }
 
     /// Given the latest BB values for a symbol, generates a map containing the [`SignalStrength`] for
     /// [`Decision`] under consideration.
     fn generate_signals_map(&mut self, bbo: BollingerBandsOutput) -> HashMap<Decision, SignalStrength> {
         let mut signals = HashMap::with_capacity(4);
-        if self.position == 0 && self.previous_candle_close > bbo.upper && self.candle_close < bbo.upper {
+        if self.position == 0 && self.previous_spread_close > bbo.upper && self.spread_close < bbo.upper {
             signals.insert(Decision::Short, BBStrategy::calculate_signal_strength());
             self.position = -1;
         } else
-        if self.position == 0 && self.previous_candle_close < bbo.lower && self.candle_close > bbo.lower {
+        if self.position == 0 && self.previous_spread_close < bbo.lower && self.spread_close > bbo.lower {
             signals.insert(Decision::Long, BBStrategy::calculate_signal_strength());
             self.position = 1;
         } else
-        if self.position == -1 && self.candle_close < bbo.average {
+        if self.position == -1 && self.spread_close < bbo.average {
             signals.insert(Decision::CloseShort, BBStrategy::calculate_signal_strength());
             self.position = 0;
         } else
-        if self.position == 1 && self.candle_close > bbo.average {
+        if self.position == 1 && self.spread_close > bbo.average {
             signals.insert(Decision::CloseLong, BBStrategy::calculate_signal_strength());
             self.position = 0;
         }

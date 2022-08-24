@@ -79,49 +79,49 @@ async fn main() {
     let hedge_ratio = 0.8;
     let bb_period = 30;
     let bb_multiplier = 2.5;
-
+    
     traders.push(
         Trader::builder()
-            .engine_id(engine_id)
-            .market(market_a.clone())
-            .command_rx(trader_a_command_rx)
-            .event_tx(event_tx.clone())
-            .portfolio(Arc::clone(&portfolio))
-            .data(historical::MarketFeed::new(
-                load_parquet_spread_market_event_candles(asset_a, asset_b, resolution, &hedge_ratio).into_iter(),
-            ))
-            .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier }))
-            .execution(SimulatedExecution::new(ExecutionConfig {
-                simulated_fees_pct: Fees {
-                    exchange: 0.1,
-                    slippage: 0.05,
-                    network: 0.0,
-                },
-            }))
-            .build()
-            .expect("failed to build trader"),
+        .engine_id(engine_id)
+        .market(market_a.clone())
+        .command_rx(trader_a_command_rx)
+        .event_tx(event_tx.clone())
+        .portfolio(Arc::clone(&portfolio))
+        .data(historical::MarketFeed::new(
+            load_parquet_spread_market_event_candles(asset_a, asset_b, resolution, &hedge_ratio).into_iter(),
+        ))
+        .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier }))
+        .execution(SimulatedExecution::new(ExecutionConfig {
+            simulated_fees_pct: Fees {
+                exchange: 0.1,
+                slippage: 0.05,
+                network: 0.0,
+            },
+        }))
+        .build()
+        .expect("failed to build trader")
     );
 
     traders.push(
         Trader::builder()
-            .engine_id(engine_id)
-            .market(market_b.clone())
-            .command_rx(trader_b_command_rx)
-            .event_tx(event_tx.clone())
-            .portfolio(Arc::clone(&portfolio))
-            .data(historical::MarketFeed::new(
-                load_parquet_spread_market_event_candles(asset_b, asset_a, resolution, &(1.0 / &hedge_ratio)).into_iter(),
-            ))
-            .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier }))
-            .execution(SimulatedExecution::new(ExecutionConfig {
-                simulated_fees_pct: Fees {
-                    exchange: 0.1,
-                    slippage: 0.05,
-                    network: 0.0,
-                },
-            }))
-            .build()
-            .expect("failed to build trader"),
+        .engine_id(engine_id)
+        .market(market_b.clone())
+        .command_rx(trader_b_command_rx)
+        .event_tx(event_tx.clone())
+        .portfolio(Arc::clone(&portfolio))
+        .data(historical::MarketFeed::new(
+            load_parquet_spread_market_event_candles(asset_b, asset_a, resolution, &(1.0 / hedge_ratio)).into_iter(),
+        ))
+        .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier }))
+        .execution(SimulatedExecution::new(ExecutionConfig {
+            simulated_fees_pct: Fees {
+                exchange: 0.1,
+                slippage: 0.05,
+                network: 0.0,
+            },
+        }))
+        .build()
+        .expect("failed to build trader")
     );
 
     // Build Engine (1-to-many relationship with Traders)
@@ -156,6 +156,38 @@ fn read_parquet(in_path: &Path) -> (Vec<Row>, TypePtr) {
 
     let schema = reader.metadata().file_metadata().schema_descr().root_schema_ptr();
     (rows, schema)
+}
+
+fn load_parquet_market_event_candles(base: &str, resolution: &str) -> Vec<MarketEvent> {
+    let parquet_path = format!("./data/{}USDT_{}.parquet.gzip", base.to_uppercase(), resolution);
+
+    let (parquet_rows, _) = read_parquet(&Path::new(&parquet_path));
+
+    let candles: Vec<Candle> = parquet_rows
+                                    .into_iter()
+                                    .map(|row| Candle {
+                                        start_time: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(row.get_long(0).unwrap() / 1000, 0), Utc),
+                                        end_time: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(row.get_long(6).unwrap() / 1000, 0), Utc),
+                                        open: row.get_string(1).unwrap().parse::<f64>().unwrap(),
+                                        high: row.get_string(2).unwrap().parse::<f64>().unwrap(),
+                                        low: row.get_string(3).unwrap().parse::<f64>().unwrap(),
+                                        close: row.get_string(4).unwrap().parse::<f64>().unwrap(),
+                                        volume: row.get_string(5).unwrap().parse::<f64>().unwrap(),
+                                        trade_count: row.get_long(8).unwrap() as u64
+                                    })
+                                    .collect();
+
+    candles
+        .into_iter()
+        .map(|candle| MarketEvent {
+            exchange_time: candle.end_time,
+            received_time: Utc::now(),
+            exchange: Exchange::from("binance"),
+            instrument: Instrument::from((base, "usdt", InstrumentKind::FuturePerpetual)),
+            kind: DataKind::Candle(candle),
+        })
+        .collect()
+
 }
 
 fn load_parquet_spread_market_event_candles(base: &str, quote: &str, resolution: &str, hedge_ratio: &f64) -> Vec<MarketEvent> {
@@ -204,11 +236,11 @@ fn load_parquet_spread_market_event_candles(base: &str, quote: &str, resolution:
             candles_spread.push(Candle {
                 start_time: candle_b.start_time,
                 end_time: candle_b.end_time,
-                open: candles_a[index_offset+i].open - hedge_ratio * candle_b.open,
-                high: candles_a[index_offset+i].high - hedge_ratio * candle_b.high,
-                low: candles_a[index_offset+i].low - hedge_ratio * candle_b.low,
-                close: candles_a[index_offset+i].close - hedge_ratio * candle_b.close,
-                volume: 0.0,
+                open: candles_a[index_offset+i].open,
+                high: candles_a[index_offset+i].high,
+                low: candles_a[index_offset+i].low,
+                close: candles_a[index_offset+i].close,
+                volume: candles_a[index_offset+i].close - hedge_ratio * candle_b.close,
                 trade_count: 0
             })
         }
@@ -220,16 +252,17 @@ fn load_parquet_spread_market_event_candles(base: &str, quote: &str, resolution:
             candles_spread.push(Candle {
                 start_time: candle_a.start_time,
                 end_time: candle_a.end_time,
-                open: candle_a.open - hedge_ratio * candles_b[index_offset+i].open,
-                high: candle_a.high - hedge_ratio * candles_b[index_offset+i].high,
-                low: candle_a.low - hedge_ratio * candles_b[index_offset+i].low,
-                close: candle_a.close - hedge_ratio * candles_b[index_offset+i].close,
-                volume: 0.0,
+                open: candle_a.open,
+                high: candle_a.high,
+                low: candle_a.low,
+                close: candle_a.close,
+                volume: candle_a.close - hedge_ratio * candles_b[index_offset+i].close,
                 trade_count: 0
             })
         }
     }
 
+    // Note: temporarly using volume param to store spread data of candle
     candles_spread
         .into_iter()
         .map(|candle| MarketEvent {
@@ -260,14 +293,14 @@ async fn listen_to_engine_events(mut event_rx: mpsc::UnboundedReceiver<Event>) {
             }
             Event::OrderNew(new_order) => {
                 // OrderNew Event occurred in Engine
-                println!("{new_order:?}\n");
+                //println!("{new_order:?}\n");
             }
             Event::OrderUpdate => {
                 // OrderUpdate Event occurred in Engine
             }
             Event::Fill(fill_event) => {
                 // Fill Event occurred in Engine
-                println!("{fill_event:?}\n");
+                //println!("{fill_event:?}\n");
             }
             Event::PositionNew(new_position) => {
                 // PositionNew Event occurred in Engine
@@ -275,7 +308,7 @@ async fn listen_to_engine_events(mut event_rx: mpsc::UnboundedReceiver<Event>) {
             }
             Event::PositionUpdate(updated_position) => {
                 // PositionUpdate Event occurred in Engine
-                println!("{updated_position:?}\n");
+                //println!("{updated_position:?}\n");
             }
             Event::PositionExit(exited_position) => {
                 // PositionExit Event occurred in Engine

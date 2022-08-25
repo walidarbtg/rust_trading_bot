@@ -10,7 +10,8 @@ use ta::{indicators::BollingerBands, indicators::BollingerBandsOutput, Next};
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub bb_period: usize,
-    pub bb_multiplier: f64
+    pub bb_multiplier: f64,
+    pub hedge_ratio: f64
 }
 
 #[derive(Clone, Debug)]
@@ -19,7 +20,8 @@ pub struct BBStrategy {
     bb: BollingerBands,
     position: i32,
     previous_spread_close: f64,
-    spread_close: f64
+    spread_close: f64,
+    hedge_ratio: f64
 }
 
 impl SignalGenerator for BBStrategy {
@@ -72,7 +74,7 @@ impl BBStrategy {
         let bb_indicator = BollingerBands::new(config.bb_period, config.bb_multiplier)
             .expect("Failed to construct BB indicator");
 
-        Self { bb: bb_indicator, previous_spread_close: 0.0, spread_close: 0.0, position: 0 }
+        Self { bb: bb_indicator, previous_spread_close: 0.0, spread_close: 0.0, position: 0, hedge_ratio: config.hedge_ratio }
     }
 
     /// Given the latest BB values for a symbol, generates a map containing the [`SignalStrength`] for
@@ -80,26 +82,26 @@ impl BBStrategy {
     fn generate_signals_map(&mut self, bbo: BollingerBandsOutput) -> HashMap<Decision, SignalStrength> {
         let mut signals = HashMap::with_capacity(4);
         if self.position == 0 && self.previous_spread_close > bbo.upper && self.spread_close < bbo.upper {
-            signals.insert(Decision::Short, BBStrategy::calculate_signal_strength());
+            signals.insert(Decision::Short, BBStrategy::calculate_signal_strength(self));
             self.position = -1;
         } else
         if self.position == 0 && self.previous_spread_close < bbo.lower && self.spread_close > bbo.lower {
-            signals.insert(Decision::Long, BBStrategy::calculate_signal_strength());
+            signals.insert(Decision::Long, BBStrategy::calculate_signal_strength(self));
             self.position = 1;
         } else
         if self.position == -1 && self.spread_close < bbo.average {
-            signals.insert(Decision::CloseShort, BBStrategy::calculate_signal_strength());
+            signals.insert(Decision::CloseShort, BBStrategy::calculate_signal_strength(self));
             self.position = 0;
         } else
         if self.position == 1 && self.spread_close > bbo.average {
-            signals.insert(Decision::CloseLong, BBStrategy::calculate_signal_strength());
+            signals.insert(Decision::CloseLong, BBStrategy::calculate_signal_strength(self));
             self.position = 0;
         }
         signals
     }
 
     /// Calculates the [`SignalStrength`] of a particular [`Decision`].
-    fn calculate_signal_strength() -> SignalStrength {
-        SignalStrength(1.0)
+    fn calculate_signal_strength(&mut self) -> SignalStrength {
+        SignalStrength(self.hedge_ratio)
     }
 }

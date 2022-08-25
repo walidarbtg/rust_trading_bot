@@ -8,7 +8,7 @@ use barter::{
     },
     portfolio::{
         allocator::DefaultAllocator, portfolio::MetaPortfolio,
-        repository::in_memory::InMemoryRepository, risk::DefaultRisk,
+        repository::in_memory::InMemoryRepository, risk::DefaultRisk, allocator::OrderAllocator
     },
     statistic::summary::{
         trading::{Config as StatisticConfig, TradingSummary},
@@ -77,7 +77,7 @@ async fn main() {
     let (trader_b_command_tx, trader_b_command_rx) = mpsc::channel(10);
 
     let hedge_ratio = 0.8;
-    let bb_period = 30;
+    let bb_period = 60;
     let bb_multiplier = 2.5;
     
     traders.push(
@@ -90,11 +90,11 @@ async fn main() {
         .data(historical::MarketFeed::new(
             load_parquet_spread_market_event_candles(asset_a, asset_b, resolution, &hedge_ratio).into_iter(),
         ))
-        .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier }))
+        .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier, hedge_ratio: 1.0 }))
         .execution(SimulatedExecution::new(ExecutionConfig {
             simulated_fees_pct: Fees {
-                exchange: 0.1,
-                slippage: 0.05,
+                exchange: 0.005,
+                slippage: 0.0,
                 network: 0.0,
             },
         }))
@@ -112,11 +112,11 @@ async fn main() {
         .data(historical::MarketFeed::new(
             load_parquet_spread_market_event_candles(asset_b, asset_a, resolution, &(1.0 / hedge_ratio)).into_iter(),
         ))
-        .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier }))
+        .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier, hedge_ratio }))
         .execution(SimulatedExecution::new(ExecutionConfig {
             simulated_fees_pct: Fees {
-                exchange: 0.1,
-                slippage: 0.05,
+                exchange: 0.005,
+                slippage: 0.0,
                 network: 0.0,
             },
         }))
@@ -267,7 +267,7 @@ fn load_parquet_spread_market_event_candles(base: &str, quote: &str, resolution:
         .into_iter()
         .map(|candle| MarketEvent {
             exchange_time: candle.end_time,
-            received_time: Utc::now(),
+            received_time: candle.end_time,//Utc::now(),
             exchange: Exchange::from("binance"),
             instrument: Instrument::from((base, "usdt", InstrumentKind::FuturePerpetual)),
             kind: DataKind::Candle(candle),

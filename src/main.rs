@@ -77,8 +77,9 @@ async fn main() {
     let (trader_b_command_tx, trader_b_command_rx) = mpsc::channel(10);
 
     let hedge_ratio = 0.8;
-    let bb_period = 60;
+    let bb_period = 15;
     let bb_multiplier = 2.5;
+    let exchange_fee = 0.0003;
     
     traders.push(
         Trader::builder()
@@ -93,7 +94,7 @@ async fn main() {
         .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier, hedge_ratio: 1.0 }))
         .execution(SimulatedExecution::new(ExecutionConfig {
             simulated_fees_pct: Fees {
-                exchange: 0.005,
+                exchange: exchange_fee,
                 slippage: 0.0,
                 network: 0.0,
             },
@@ -115,7 +116,7 @@ async fn main() {
         .strategy(bbands_strategy::BBStrategy::new(bbands_strategy::Config { bb_period, bb_multiplier, hedge_ratio }))
         .execution(SimulatedExecution::new(ExecutionConfig {
             simulated_fees_pct: Fees {
-                exchange: 0.005,
+                exchange: exchange_fee,
                 slippage: 0.0,
                 network: 0.0,
             },
